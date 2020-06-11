@@ -17,12 +17,10 @@
 #include "e_pkcs11_err.c"
 #include <openssl/x509v3.h>
 #include <openssl/ui.h>
+#include <ctype.h>
 
 static int pkcs11_parse_items(PKCS11_CTX *ctx, const char *uri, int store);
 static int pkcs11_parse(PKCS11_CTX *ctx, const char *path, int store);
-static char pkcs11_hex_int(char nib1, char nib2);
-static int pkcs11_ishex(char *hex);
-static char* pkcs11_hex2a(char *hex);
 static PKCS11_CTX *pkcs11_ctx_new(void);
 static void pkcs11_ctx_free(PKCS11_CTX *ctx);
 static int bind_pkcs11(ENGINE *e);
@@ -75,6 +73,26 @@ static int pkcs11_load_ssl_client_cert(ENGINE *e, SSL *ssl,
                                        void *callback_data);
 
 int rsa_pkcs11_idx = -1;
+
+static void urldecode(char *p)
+{
+    unsigned char *out = (unsigned char *)p;
+    unsigned char *save = out;
+
+    for (; *p; p++) {
+        if (*p != '%') {
+            *out++ = *p;
+        } else if (isxdigit((unsigned char)(p[1])) &&
+                   isxdigit((unsigned char)(p[2]))) {
+            *out++ = (OPENSSL_hexchar2int(p[1]) << 4)
+                | OPENSSL_hexchar2int(p[2]);
+            p += 2;
+        } else {
+            return;
+        }
+    }
+    *out = '\0';
+}
 
 static int pkcs11_init(ENGINE *e)
 {
@@ -145,56 +163,6 @@ static int pkcs11_ctrl(ENGINE *e, int cmd, long i, void *p, void (*f) (void))
     return ret;
 }
 
-static char pkcs11_hex_int(char nib1, char nib2)
-{
-    int ret = (nib1-(nib1 <= 57 ? 48 : (nib1 < 97 ? 55 : 87)))*16;
-    ret += (nib2-(nib2 <= 57 ? 48 : (nib2 < 97 ? 55 : 87)));
-    return ret;
-}
-
-static char* pkcs11_hex2a(char *hex)
-{
-    int vlen, j = 0, i, ishex;
-    char *hex2a;
-
-    hex2a = OPENSSL_malloc(strlen(hex) + 1);
-
-    if (hex2a == NULL)
-        return NULL;
-
-    vlen = strlen(hex);
-    ishex = pkcs11_ishex(hex);
-    for (i = 0; i < vlen; i++) {
-        if ((*(hex+i) == '%' && i < (vlen-2)) || ishex) {
-            *(hex2a+j) = pkcs11_hex_int(*(hex+i+1-ishex), *(hex+i+2-ishex));
-            i += (2-ishex);
-        } else {
-            *(hex2a+j) = *(hex+i);
-        }
-        j++;
-    }
-    *(hex2a+j) = '\0';
-    return hex2a;
-}
-
-static int pkcs11_ishex(char *hex)
-{
-    size_t i, len, h = 0;
-
-    len = strlen(hex);
-    for (i = 0; i < len; i++) {
-        if ((*(hex+i) >= '0' && *(hex+i) <= '9')
-            || (*(hex+i) >= 'a' && *(hex+i) <= 'f')
-            || (*(hex+i) >= 'A' && *(hex+i) <= 'F'))
-            h++;
-        else
-            return 0;
-    }
-    if (!(h % 2))
-        return 1;
-    return 0;
-}
-
 static unsigned char *pkcs11_pad(char *field, int len)
 {
     int i;
@@ -238,10 +206,21 @@ CK_BYTE *pin_from_file(const char *filename)
     return NULL;
 }
 
+void removePercent(char *str) {
+
+    char *src, *dst;
+    for (src = dst = str; *src != '\0'; src++) {
+        *dst = *src;
+        if (*dst != '%') dst++;
+    }
+    *dst = '\0';
+}
+
 static int pkcs11_parse_items(PKCS11_CTX *ctx, const char *uri, int store)
 {
     char *p, *q, *tmpstr;
     int len = 0;
+    long ltmp;
 
     p = q = (char *) uri;
 
@@ -280,38 +259,41 @@ static int pkcs11_parse_items(PKCS11_CTX *ctx, const char *uri, int store)
                 tmpstr = OPENSSL_strdup(p);
                 if (tmpstr == NULL)
                     goto memerr;
-                ctx->label = (CK_BYTE *) pkcs11_hex2a(tmpstr);
+                urldecode(tmpstr);
+                ctx->label = (CK_BYTE *) tmpstr;
             } else if (strncmp(p, "model=", 6) == 0) {
                 p += 6;
                 tmpstr = OPENSSL_strdup(p);
                 if (tmpstr == NULL)
                     goto memerr;
-                memcpy(ctx->model, pkcs11_pad(pkcs11_hex2a(tmpstr), 16), 16);
+                urldecode(tmpstr);
+                memcpy(ctx->model, pkcs11_pad(tmpstr, 16), 16);
             } else if (strncmp(p, "serial=", 7) == 0) {
                 p += 7;
                 tmpstr = OPENSSL_strdup(p);
                 if (tmpstr == NULL)
                     goto memerr;
+                urldecode(tmpstr);
                 memcpy(ctx->serial, pkcs11_pad(tmpstr, 16), 16);
             } else if (strncmp(p, "token=", 6) == 0) {
                 p += 6;
                 tmpstr = OPENSSL_strdup(p);
                 if (tmpstr == NULL)
                     goto memerr;
-                memcpy(ctx->token, pkcs11_pad(pkcs11_hex2a(tmpstr), 32), 32);
+                urldecode(tmpstr);
+                memcpy(ctx->token, pkcs11_pad(tmpstr, 32), 32);
             } else if (strncmp(p, "manufacturer=", 13) == 0) {
                 p += 13;
                 tmpstr = OPENSSL_strdup(p);
                 if (tmpstr == NULL)
                     goto memerr;
-                memcpy(ctx->manufacturer, pkcs11_pad(pkcs11_hex2a(tmpstr), 32), 32);
+                urldecode(tmpstr);
+                memcpy(ctx->manufacturer, pkcs11_pad(tmpstr, 32), 32);
             } else if (strncmp(p, "id=", 3) == 0 && ctx->id == NULL) {
                 p += 3;
-                tmpstr = OPENSSL_strdup(p);
-                if (tmpstr == NULL)
-                    goto memerr;
-                ctx->id = (CK_BYTE *) pkcs11_hex2a(tmpstr);
-                ctx->idlen = (CK_ULONG) strlen((char *) ctx->id);
+                removePercent(p);
+                ctx->id = (CK_BYTE *) OPENSSL_hexstr2buf(p, &ltmp);
+                ctx->idlen = (CK_ULONG) ltmp;
             } else if (strncmp(p, "type=", 5) == 0 && ctx->type == NULL) {
                 p += 5;
                 tmpstr = OPENSSL_strdup(p);
@@ -405,6 +387,7 @@ static int pkcs11_parse(PKCS11_CTX *ctx, const char *path, int store)
 {
     char *pin = NULL;
     char *id = NULL;
+    long ltmp;
 
     if (path == NULL) {
         PKCS11_trace("URI is empty\n");
@@ -426,8 +409,9 @@ static int pkcs11_parse(PKCS11_CTX *ctx, const char *path, int store)
             PKCS11err(PKCS11_F_PKCS11_PARSE, ERR_R_MALLOC_FAILURE);
             goto err;
         }
-        ctx->id = (CK_BYTE *) pkcs11_hex2a(id);
-        ctx->idlen = (CK_ULONG) strlen((char *) ctx->id);
+        removePercent(id);
+        ctx->id = (CK_BYTE *) OPENSSL_hexstr2buf(id, &ltmp);
+        ctx->idlen = (CK_ULONG) ltmp;
     }
 
     if (ctx->module_path == NULL) {
