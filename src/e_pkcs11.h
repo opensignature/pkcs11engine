@@ -109,6 +109,7 @@ CK_OBJECT_HANDLE pkcs11_find_private_key(CK_SESSION_HANDLE session,
 CK_OBJECT_HANDLE pkcs11_find_public_key(CK_SESSION_HANDLE session,
                                         PKCS11_CTX *ctx);
 void PKCS11_trace(char *format, ...);
+void printf_stderr(char *format, ...);
 PKCS11_CTX *pkcs11_get_ctx(const RSA *rsa);
 int pkcs11_search_next_ids(OSSL_STORE_LOADER_CTX *ctx, char **name,
                            char **description);

@@ -791,10 +791,9 @@ static int bind_pkcs11(ENGINE *e)
     return 0;
 }
 
-void PKCS11_trace(char *format, ...)
+void printf_stderr(char *fmt, ...)
 {
-#ifdef DEBUG
-# ifndef OPENSSL_NO_STDIO
+#ifndef OPENSSL_NO_STDIO
     BIO *out;
     va_list args;
 
@@ -804,11 +803,17 @@ void PKCS11_trace(char *format, ...)
         return;
     }
 
-    va_start(args, format);
-    BIO_vprintf(out, format, args);
+    va_start(args, fmt);
+    BIO_vprintf(out, fmt, args);
     va_end(args);
     BIO_free(out);
-# endif
+#endif
+}
+
+void PKCS11_trace(char *fmt, ...)
+{
+#ifdef DEBUG
+    printf_stderr(fmt);
 #endif
 }
 
