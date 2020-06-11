@@ -28,8 +28,8 @@ int main(int argc, char **argv)
         const char *prompt_info;
     } PW_CB_DATA;
 
-    if (argc != 6) {
-        fprintf(stderr, "Usage: signcms infile modpkcs11 id pin md\n");
+    if (argc < 5 || argc > 6) {
+        fprintf(stderr, "Usage: signcms infile modpkcs11 pin id [md]\n");
         exit(1);
     }
 
@@ -62,8 +62,12 @@ int main(int argc, char **argv)
         goto err;
 
     OSSL_STORE_INFO *info = OSSL_STORE_load(store_ctx);
-    if (!info)
+
+    if (!info) {
+        fprintf(stderr, "ID not found\nUse openssl storeutl -engine pkcs11 ");
+        fprintf(stderr, "'pkcs11:module-path=%s'\n",argv[2]);
         goto err;
+    }
 
     signer = OSSL_STORE_INFO_get0_CERT(info);
 
@@ -88,7 +92,7 @@ int main(int argc, char **argv)
     if (key == NULL)
         goto err;
 
-    sign_md = EVP_get_digestbyname(argv[5]);
+    sign_md = EVP_get_digestbyname(argv[5] != NULL ? argv[5] : "sha256");
 
     if (sign_md == NULL)
         goto err;
