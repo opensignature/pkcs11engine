@@ -74,10 +74,15 @@ static int pkcs11_load_ssl_client_cert(ENGINE *e, SSL *ssl,
 
 int rsa_pkcs11_idx = -1;
 
-static void urldecode(char *p)
+unsigned char* urldecode(char *p)
 {
-    unsigned char *out = (unsigned char *)p;
+    unsigned char *out = NULL;
+
+    out = (unsigned char *)OPENSSL_strdup(p);
     unsigned char *save = out;
+
+    if (out == NULL)
+        goto memerr;
 
     for (; *p; p++) {
         if (*p != '%') {
@@ -88,10 +93,16 @@ static void urldecode(char *p)
                 | OPENSSL_hexchar2int(p[2]);
             p += 2;
         } else {
-            return;
+            return NULL;
         }
     }
     *out = '\0';
+
+    return save;
+
+memerr:
+    PKCS11err(PKCS11_F_PKCS11_INIT, ERR_R_MALLOC_FAILURE);
+    return NULL;
 }
 
 static int pkcs11_init(ENGINE *e)
@@ -206,21 +217,10 @@ CK_BYTE *pin_from_file(const char *filename)
     return NULL;
 }
 
-void removePercent(char *str) {
-
-    char *src, *dst;
-    for (src = dst = str; *src != '\0'; src++) {
-        *dst = *src;
-        if (*dst != '%') dst++;
-    }
-    *dst = '\0';
-}
-
 static int pkcs11_parse_items(PKCS11_CTX *ctx, const char *uri, int store)
 {
     char *p, *q, *tmpstr;
     int len = 0;
-    long ltmp;
 
     p = q = (char *) uri;
 
@@ -256,44 +256,23 @@ static int pkcs11_parse_items(PKCS11_CTX *ctx, const char *uri, int store)
                 }
             } else if (strncmp(p, "object=", 7) == 0 && ctx->label == NULL) {
                 p += 7;
-                tmpstr = OPENSSL_strdup(p);
-                if (tmpstr == NULL)
-                    goto memerr;
-                urldecode(tmpstr);
-                ctx->label = (CK_BYTE *) tmpstr;
+                ctx->label = (CK_BYTE *) urldecode(p);
             } else if (strncmp(p, "model=", 6) == 0) {
                 p += 6;
-                tmpstr = OPENSSL_strdup(p);
-                if (tmpstr == NULL)
-                    goto memerr;
-                urldecode(tmpstr);
-                memcpy(ctx->model, pkcs11_pad(tmpstr, 16), 16);
+                memcpy(ctx->model, pkcs11_pad(urldecode(p), 16), 16);
             } else if (strncmp(p, "serial=", 7) == 0) {
                 p += 7;
-                tmpstr = OPENSSL_strdup(p);
-                if (tmpstr == NULL)
-                    goto memerr;
-                urldecode(tmpstr);
-                memcpy(ctx->serial, pkcs11_pad(tmpstr, 16), 16);
+                memcpy(ctx->serial, pkcs11_pad(urldecode(p), 16), 16);
             } else if (strncmp(p, "token=", 6) == 0) {
                 p += 6;
-                tmpstr = OPENSSL_strdup(p);
-                if (tmpstr == NULL)
-                    goto memerr;
-                urldecode(tmpstr);
-                memcpy(ctx->token, pkcs11_pad(tmpstr, 32), 32);
+                memcpy(ctx->token, pkcs11_pad(urldecode(p), 32), 32);
             } else if (strncmp(p, "manufacturer=", 13) == 0) {
                 p += 13;
-                tmpstr = OPENSSL_strdup(p);
-                if (tmpstr == NULL)
-                    goto memerr;
-                urldecode(tmpstr);
-                memcpy(ctx->manufacturer, pkcs11_pad(tmpstr, 32), 32);
+                memcpy(ctx->manufacturer, pkcs11_pad(urldecode(p), 32), 32);
             } else if (strncmp(p, "id=", 3) == 0 && ctx->id == NULL) {
                 p += 3;
-                removePercent(p);
-                ctx->id = (CK_BYTE *) OPENSSL_hexstr2buf(p, &ltmp);
-                ctx->idlen = (CK_ULONG) ltmp;
+                ctx->id = (CK_BYTE *) urldecode(p);
+                ctx->idlen = (CK_ULONG) strlen(ctx->id);
             } else if (strncmp(p, "type=", 5) == 0 && ctx->type == NULL) {
                 p += 5;
                 tmpstr = OPENSSL_strdup(p);
@@ -303,10 +282,7 @@ static int pkcs11_parse_items(PKCS11_CTX *ctx, const char *uri, int store)
             } else if (strncmp(p, "module-path=", 12) == 0
                 && ctx->module_path == NULL) {
                 p += 12;
-                tmpstr = OPENSSL_strdup(p);
-                if (tmpstr == NULL)
-                    goto memerr;
-                ctx->module_path = tmpstr;
+                ctx->module_path = urldecode(p);
             } else if (strncmp(p, "slot-id=", 8) == 0 && ctx->slotid == 0) {
                 p += 8;
                 tmpstr = OPENSSL_strdup(p);
@@ -387,7 +363,6 @@ static int pkcs11_parse(PKCS11_CTX *ctx, const char *path, int store)
 {
     char *pin = NULL;
     char *id = NULL;
-    long ltmp;
 
     if (path == NULL) {
         PKCS11_trace("URI is empty\n");
@@ -409,9 +384,8 @@ static int pkcs11_parse(PKCS11_CTX *ctx, const char *path, int store)
             PKCS11err(PKCS11_F_PKCS11_PARSE, ERR_R_MALLOC_FAILURE);
             goto err;
         }
-        removePercent(id);
-        ctx->id = (CK_BYTE *) OPENSSL_hexstr2buf(id, &ltmp);
-        ctx->idlen = (CK_ULONG) ltmp;
+        ctx->id = (CK_BYTE *) urldecode(id);
+        ctx->idlen = (CK_ULONG) strlen(ctx->id);
     }
 
     if (ctx->module_path == NULL) {
