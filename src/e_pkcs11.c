@@ -342,7 +342,7 @@ CK_RV pkcs11_initialize(const char *library_path)
 
     args.flags = CKF_OS_LOCKING_OK;
     rv = pkcs11_funcs->C_Initialize(&args);
-    if (rv != CKR_OK) {
+    if (rv != CKR_OK && rv != CKR_CRYPTOKI_ALREADY_INITIALIZED) {
         PKCS11_trace("C_Initialize failed, error: %#08X\n", rv);
         PKCS11err(PKCS11_F_PKCS11_INITIALIZE, PKCS11_R_INITIALIZE_FAILED);
         return rv;
