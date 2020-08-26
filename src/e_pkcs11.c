@@ -12,9 +12,13 @@
 #include "e_pkcs11_err.c"
 #include "dso.h"
 #include <openssl/bn.h>
-#include <crypto/x509.h>
 
 #define OSSL_NELEM(x)    (sizeof(x)/sizeof((x)[0]))
+
+struct X509_sig_st {
+    X509_ALGOR *algor;
+    ASN1_OCTET_STRING *digest;
+};
 
 typedef CK_RV pkcs11_pFunc(CK_FUNCTION_LIST **pkcs11_funcs);
 static CK_RV pkcs11_load_functions(const char *library_path);
